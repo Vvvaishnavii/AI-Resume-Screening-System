@@ -1,0 +1,498 @@
+{
+  "name": "AI Resume Screening System - Optimized",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/drive/v3/files?q='{{ $env.RESUME_FOLDER_ID }}'+in+parents+and+mimeType='application/pdf'+and+trashed=false&fields=files(id,name,createdTime,webViewLink)&orderBy=createdTime desc",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "get-resumes-http",
+      "name": "Get New Resumes (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 400],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize the response from Google Drive API\nconst response = $input.item.json;\nconst files = response.files || [];\n\nconsole.log(`Found ${files.length} resume files in folder`);\n\n// Return array of normalized file objects\nreturn files.map(file => ({\n  json: {\n    id: file.id,\n    name: file.name,\n    createdTime: file.createdTime,\n    webViewLink: file.webViewLink,\n    url: `https://drive.google.com/file/d/${file.id}/view`\n  }\n}));"
+      },
+      "id": "normalize-resume-list",
+      "name": "Normalize Resume List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEET_ID }}/values/Sheet1!E:E",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "id": "get-processed-http",
+      "name": "Get Processed IDs (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, 540],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get processed resume links from sheet\nconst sheetData = $input.all()[1][0]?.json || {};\nconst values = sheetData.values || [];\n\n// Extract file IDs from resume links (column E)\nconst processedIds = values\n  .slice(1) // Skip header row\n  .map(row => {\n    const link = row[0] || '';\n    const match = link.match(/\\/d\\/([a-zA-Z0-9_-]+)/);\n    return match ? match[1] : null;\n  })\n  .filter(id => id !== null);\n\nconsole.log(`Already processed: ${processedIds.length} resumes`);\n\n// Get all resumes from normalized list\nconst allResumes = $input.all()[0] || [];\n\n// Filter out already processed\nconst unprocessed = allResumes.filter(resume => {\n  const resumeId = resume.json.id;\n  const isProcessed = processedIds.includes(resumeId);\n  if (isProcessed) {\n    console.log(`Skipping already processed: ${resume.json.name}`);\n  }\n  return !isProcessed;\n});\n\nconsole.log(`Unprocessed resumes: ${unprocessed.length}`);\n\nif (unprocessed.length === 0) {\n  console.log('No new resumes to process');\n  return [];\n}\n\nreturn unprocessed;"
+      },
+      "id": "filter-unprocessed",
+      "name": "Filter Unprocessed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.id }}?alt=media",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-resume-http",
+      "name": "Download Resume PDF (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 400],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "extractText",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "extract-resume-text",
+      "name": "Extract Resume Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/drive/v3/files?q='{{ $env.JD_FOLDER_ID }}'+in+parents+and+mimeType='application/pdf'+and+trashed=false&fields=files(id,name)&orderBy=createdTime desc&pageSize=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "get-jd-http",
+      "name": "Get Latest JD (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 560],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the first (latest) job description file ID\nconst response = $input.item.json;\nconst files = response.files || [];\n\nif (files.length === 0) {\n  throw new Error('No job description found in JD folder');\n}\n\nconst jdFile = files[0];\nconsole.log(`Using job description: ${jdFile.name}`);\n\nreturn {\n  json: {\n    id: jdFile.id,\n    name: jdFile.name\n  }\n};"
+      },
+      "id": "extract-jd-id",
+      "name": "Extract JD ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 560]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.id }}?alt=media",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-jd-http",
+      "name": "Download JD PDF (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 560],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "extractText",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "extract-jd-text",
+      "name": "Extract JD Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1600, 560]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge-resume-jd",
+      "name": "Merge Resume & JD",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get resume text and JD text\nconst resumeText = $('Extract Resume Text').item.json.text || '';\nconst jdText = $('Extract JD Text').item.json.text || '';\nconst resumeMetadata = $('Download Resume PDF (HTTP)').item.json;\n\nif (!resumeText || resumeText.length < 50) {\n  throw new Error('Resume text extraction failed or file is too short');\n}\n\nif (!jdText || jdText.length < 50) {\n  throw new Error('Job description text extraction failed');\n}\n\nconsole.log(`Resume text length: ${resumeText.length} chars`);\nconsole.log(`JD text length: ${jdText.length} chars`);\n\nreturn {\n  json: {\n    resume_text: resumeText,\n    jd_text: jdText,\n    resume_id: resumeMetadata.id,\n    resume_name: resumeMetadata.name,\n    resume_url: resumeMetadata.url\n  }\n};"
+      },
+      "id": "prepare-for-claude",
+      "name": "Prepare Data for Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 4000,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are an expert technical recruiter with 15 years of experience. Analyze this resume objectively against the job description.\\n\\nJOB DESCRIPTION:\\n{{ $json.jd_text }}\\n\\nRESUME:\\n{{ $json.resume_text }}\\n\\nProvide ONLY valid JSON (no markdown, no code blocks):\\n{\\n  \\\"candidate_name\\\": \\\"string\\\",\\n  \\\"mobile\\\": \\\"string (phone from resume)\\\",\\n  \\\"email\\\": \\\"string (email from resume)\\\",\\n  \\\"scores\\\": {\\n    \\\"technical_skills\\\": number (0-100),\\n    \\\"experience_relevance\\\": number (0-100),\\n    \\\"education\\\": number (0-100),\\n    \\\"soft_skills\\\": number (0-100),\\n    \\\"career_trajectory\\\": number (0-100)\\n  },\\n  \\\"strengths\\\": [\\\"3-5 key strengths\\\"],\\n  \\\"gaps\\\": [\\\"missing requirements\\\"],\\n  \\\"red_flags\\\": [\\\"concerns or empty array\\\"],\\n  \\\"highlights\\\": [\\\"standout achievements\\\"],\\n  \\\"detailed_reasoning\\\": \\\"2-3 paragraph explanation\\\"\\n}\\n\\nBe objective and base evaluation on facts.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-api",
+      "name": "Claude API Evaluation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "3",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude response and calculate final scores\nconst response = $input.item.json;\nconst content = response.content?.[0]?.text || '';\n\nif (!content) {\n  throw new Error('Empty response from Claude API');\n}\n\n// Extract JSON (remove markdown code blocks if present)\nlet jsonText = content.trim();\nif (jsonText.startsWith('```')) {\n  const match = jsonText.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  jsonText = match ? match[1].trim() : jsonText;\n}\n\n// Parse JSON\nlet evaluation;\ntry {\n  evaluation = JSON.parse(jsonText);\n} catch (e) {\n  console.error('Failed to parse JSON:', jsonText);\n  throw new Error(`JSON parse error: ${e.message}`);\n}\n\n// Calculate weighted overall score\nconst scores = evaluation.scores;\nconst overallScore = Math.round(\n  scores.technical_skills * 0.35 +\n  scores.experience_relevance * 0.30 +\n  scores.education * 0.15 +\n  scores.soft_skills * 0.10 +\n  scores.career_trajectory * 0.10\n);\n\n// Determine recommendation\nlet recommendation = 'Maybe';\nif (overallScore >= 85) recommendation = 'Interview';\nelse if (overallScore >= 70) recommendation = 'Shortlist';\nelse if (overallScore < 50) recommendation = 'Reject';\n\n// Get resume metadata\nconst metadata = $('Prepare Data for Claude').item.json;\n\n// Format final output\nconst result = {\n  timestamp: new Date().toISOString(),\n  candidate_name: evaluation.candidate_name || 'Unknown',\n  mobile: evaluation.mobile || 'Not found',\n  email: evaluation.email || 'Not found',\n  resume_url: metadata.resume_url,\n  overall_score: overallScore,\n  technical_skills: scores.technical_skills,\n  experience_relevance: scores.experience_relevance,\n  education: scores.education,\n  soft_skills: scores.soft_skills,\n  career_trajectory: scores.career_trajectory,\n  recommendation: recommendation,\n  strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths.join('; ') : '',\n  gaps: Array.isArray(evaluation.gaps) ? evaluation.gaps.join('; ') : '',\n  red_flags: Array.isArray(evaluation.red_flags) ? evaluation.red_flags.join('; ') : '',\n  highlights: Array.isArray(evaluation.highlights) ? evaluation.highlights.join('; ') : '',\n  detailed_reasoning: evaluation.detailed_reasoning || '',\n  status: 'Processed',\n  resume_id: metadata.resume_id\n};\n\nconsole.log(`Evaluated: ${result.candidate_name} - Score: ${overallScore} - ${recommendation}`);\n\nreturn { json: result };"
+      },
+      "id": "parse-and-calculate",
+      "name": "Parse & Calculate Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEET_ID }}/values/Sheet1!A:R:append?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"values\": [\n    [\n      \"{{ $json.timestamp }}\",\n      \"{{ $json.candidate_name }}\",\n      \"{{ $json.mobile }}\",\n      \"{{ $json.email }}\",\n      \"{{ $json.resume_url }}\",\n      {{ $json.overall_score }},\n      {{ $json.technical_skills }},\n      {{ $json.experience_relevance }},\n      {{ $json.education }},\n      {{ $json.soft_skills }},\n      {{ $json.career_trajectory }},\n      \"{{ $json.recommendation }}\",\n      \"{{ $json.strengths }}\",\n      \"{{ $json.gaps }}\",\n      \"{{ $json.red_flags }}\",\n      \"{{ $json.highlights }}\",\n      \"{{ $json.detailed_reasoning }}\",\n      \"{{ $json.status }}\"\n    ]\n  ]\n}",
+        "options": {}
+      },
+      "id": "append-to-sheet",
+      "name": "Append to Sheet (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Parse & Calculate Score').item.json.resume_id }}?addParents={{ $env.PROCESSED_FOLDER_ID }}&removeParents={{ $env.RESUME_FOLDER_ID }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "move-to-processed",
+      "name": "Move to Processed (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2600, 400],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get New Resumes (HTTP)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Processed IDs (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Resumes (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Resume List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Resume List": {
+      "main": [
+        [
+          {
+            "node": "Filter Unprocessed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Processed IDs (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Filter Unprocessed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unprocessed": {
+      "main": [
+        [
+          {
+            "node": "Download Resume PDF (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Resume PDF (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Extract Resume Text",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Latest JD (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Resume Text": {
+      "main": [
+        [
+          {
+            "node": "Merge Resume & JD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Latest JD (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Extract JD ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract JD ID": {
+      "main": [
+        [
+          {
+            "node": "Download JD PDF (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download JD PDF (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Extract JD Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract JD Text": {
+      "main": [
+        [
+          {
+            "node": "Merge Resume & JD",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Resume & JD": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data for Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data for Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude API Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Parse & Calculate Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Calculate Score": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheet (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Sheet (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Move to Processed (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "your-n8n-instance"
+  },
+  "id": "resume-screening-optimized",
+  "tags": []
+}
