@@ -15,12 +15,10 @@ produces explainable relevance scores, and maintains structured hiring insights.
 ## 🏗 Architecture Overview
 The system runs as a scheduled workflow and processes new resumes without manual intervention.
 
-![Data Flow Diagram](docs/data-flow-diagram.png)
 
 ## 📂 Repository Contents
 - `workflow/n8n-workflow.json` → n8n workflow definition
 - `docs/system-design.md` → Detailed design & explanation
-- `docs/sample-evaluation.json` → Example evaluation output
 
 ## 🛠 Tools & Technologies
 - n8n (workflow orchestration)
